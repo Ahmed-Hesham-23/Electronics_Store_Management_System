@@ -1,4 +1,4 @@
-#include "Products.cpp"
+#include "Product.cpp"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -7,69 +7,82 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <map>
+
 using namespace std;
 
-class inventory
+// =============================================================================
+// Inventory
+// =============================================================================
+
+class Inventory
 {
 private:
-    vector<product *> products;         // owns every pointer in this list
-    string FILE_PATH = "Warehouse.txt"; // persistence file name
-
-    //  Private helper: linear search by product ID:: Returns the index inside 'products', or -1 if not found.
-
-    int indexOfId(const string &id)
+    vector<product *> products;
+    const string FILE_PATH = "Warehouse.csv";
+    // Find index of a product by ID
+    // Returns: index if found, -1 otherwise
+    int indexOfId(const string &id) const
     {
-        for (int i = 0; i < (int)products.size(); i++)
-        {
+        for (int i = 0; i < static_cast<int>(products.size()); ++i)
             if (products[i]->getProductId() == id)
                 return i;
-        }
         return -1;
+    }
+    // CSV helper: wraps string in quotes if it contains a comma
+    // Prevents breaking CSV structure
+    static string csvQuote(const string &s)
+    {
+        return (s.find(',') != string::npos) ? "\"" + s + "\"" : s;
     }
 
 public:
-    // Construtors
-    inventory() = default;
-    inventory(const inventory &) = delete;
-    inventory &operator=(const inventory &) = delete;
-    // Destructor
-    ~inventory()
+    // Disable copying (to avoid shallow copy of pointers)
+    Inventory() = default;
+    Inventory(const Inventory &) = delete;
+    Inventory &operator=(const Inventory &) = delete;
+    // Destructor: free all dynamically allocated products
+    ~Inventory()
     {
         for (auto *p : products)
             delete p;
     }
-    // Core Updatations add - remove - search
+    // Add a new product (ensures unique ID)
     bool addProduct(product *p)
     {
         if (!p)
-            throw invalid_argument("There is no product to be added!\n");
+            throw invalid_argument("Cannot add a null product.");
         if (indexOfId(p->getProductId()) != -1)
         {
-            cout << "Product ID " << p->getProductId() << " is already exists!\n";
+            cout << "Product ID '" << p->getProductId() << "' already exists.\n";
             return false;
         }
         products.push_back(p);
+        saveToFile();
         return true;
     }
-
+    // Remove product by ID
     bool removeProduct(const string &id)
     {
         int index = indexOfId(id);
         if (index == -1)
         {
-            cout << "Product with ID " << id << " doesn't exists\n";
+            cout << "Product with ID '" << id << "' not found.\n";
             return false;
         }
         delete products[index];
         products.erase(products.begin() + index);
+        saveToFile();
         return true;
     }
-    // Searching By ID , Name , Brand , Price Range
-    product *findById(const string &id)
+    // Searching about Prodcuts by differenet ways
+    // Way1:
+    product *findById(const string &id) const
     {
         int index = indexOfId(id);
-        return (index == -1) ? NULL : products[index];
+        return (index == -1) ? nullptr : products[index];
     }
+    //Way2:
     vector<product *> findByName(const string &keyword) const
     {
         vector<product *> results;
@@ -84,61 +97,70 @@ public:
         }
         return results;
     }
-
-    vector<product *> findByBrand(const string &brand)
+    //Way3:
+    vector<product *> findByBrand(const string &brand) const
     {
         vector<product *> result;
         string br = brand;
         transform(br.begin(), br.end(), br.begin(), ::tolower);
-
         for (auto *p : products)
         {
-            string tempBrand = p->getBrand();
-            transform(tempBrand.begin(), tempBrand.end(), tempBrand.begin(), ::tolower);
-
-            if (tempBrand == br)
+            string b = p->getBrand();
+            transform(b.begin(), b.end(), b.begin(), ::tolower);
+            if (b == br)
                 result.push_back(p);
         }
         return result;
     }
-
-    vector<product *> findByPriceRange(double min, double max)
+    //Way4:
+    vector<product *> findByPriceRange(double minPrice, double maxPrice) const
     {
-        if (min < 0 || max < min || max <= 0)
-            throw invalid_argument("Invalid Price Range\n");
-
+        if (minPrice < 0 || maxPrice < minPrice || maxPrice <= 0)
+            throw invalid_argument("Invalid price range.");
         vector<product *> result;
         for (auto *p : products)
-        {
-            if (p->getCurrentPrice() >= min && p->getCurrentPrice() <= max)
+            if (p->getCurrentPrice() >= minPrice && p->getCurrentPrice() <= maxPrice)
                 result.push_back(p);
-        }
         return result;
     }
-    // Update the stock when new products entered the warehouse
+    // Stock operations
     bool restock(const string &id, int qty)
     {
         product *p = findById(id);
         if (!p)
+        {
+            cout << "Restock failed: product '" << id << "' not found.\n";
             return false;
+        }
         p->restock(qty);
+        saveToFile();
         return true;
     }
-    // Update the stock when selling
+
     bool sell(const string &id, int qty)
     {
         product *p = findById(id);
         if (!p)
+        {
+            cout << "Sale failed: product '" << id << "' not found.\n";
             return false;
-        return p->sell(qty);
+        }
+        bool sold = p->sell(qty);
+        if (sold)
+            saveToFile();
+        return sold;
     }
-    // Discount Managemnt
+    // Pricing / status operations
     bool applyDiscount(const string &id, double amount, DiscountType type)
     {
         product *p = findById(id);
         if (!p)
+        {
+            cout << "Discount failed: product '" << id << "' not found.\n";
             return false;
+        }
         p->setDiscountSale(amount, type);
+        saveToFile();
         return true;
     }
 
@@ -146,37 +168,38 @@ public:
     {
         product *p = findById(id);
         if (!p)
+        {
+            cout << "Discontinue failed: product '" << id << "' not found.\n";
             return false;
+        }
         p->discontinue();
+        saveToFile();
         return true;
     }
-    // Statistics & Reporting
-    // Total number of distinct products in the inventory
-    int count() const { return (int)products.size(); }
-    // True when the inventory holds no products at all
+    // Statistics
+    int count() const { return static_cast<int>(products.size()); }
     bool isEmpty() const { return products.empty(); }
-    // Read-only access to the full product list (for iteration by callers)
-    const vector<product *> &all() { return products; }
 
-    // Number of products that are currently available (in stock)
+    const vector<product *> &all() const { return products; }
+
     int countAvailable() const
     {
         int n = 0;
         for (auto *p : products)
             if (p->isAvailable())
-                n++;
+                ++n;
         return n;
     }
-    // Number of products that are NOT currently available
+
     int countOutOfStock() const
     {
         int n = 0;
         for (auto *p : products)
             if (!p->isAvailable())
-                n++;
+                ++n;
         return n;
     }
-    // Total monetary value of all stock on hand (price × quantity, every product)
+
     double totalInventoryValue() const
     {
         double v = 0;
@@ -184,151 +207,160 @@ public:
             v += p->getCurrentPrice() * p->getStockQuantity();
         return v;
     }
-    // Printing --> Calls displayDetails() on every product (runtime polymorphism: each subclass prints its own specialized format).
+    // Display functions
     void printAll() const
     {
         if (products.empty())
         {
-            cout << "  No products in inventory.\n";
+            cout << "No products in inventory.\n";
             return;
         }
-        cout << "\n  ===== PRODUCT CATALOG (" << count() << " items) =====\n";
+        cout << "\n===== PRODUCT CATALOG (" << count() << " items) =====\n";
         for (auto *p : products)
-            p->displayDetails(); // Polymorphism
+            p->displayDetails();
     }
-    //  Runs findByName and displays every match, or a not-found message.
+
     void printSearchResults(const string &keyword) const
     {
         auto res = findByName(keyword);
         if (res.empty())
         {
-            cout << "  No products matching '" << keyword << "'.\n";
+            cout << "No products matching '" << keyword << "'.\n";
             return;
         }
         for (auto *p : res)
             p->displayDetails();
     }
-    // Prints a one-screen overview: counts and total stock value.
+
+    void printOutOfStock() const
+    {
+        cout << "\n===== OUT-OF-STOCK / UNAVAILABLE =====\n";
+        bool any = false;
+        for (auto *p : products)
+            if (!p->isAvailable())
+            {
+                cout << "[" << p->getProductId() << "] "
+                     << p->getName() << " - " << p->getStatusString() << "\n";
+                any = true;
+            }
+        if (!any)
+            cout << "All products are in stock!\n";
+    }
+    // Reporting
     void printInventorySummary() const
     {
-        cout << "\n  ===== INVENTORY SUMMARY =====\n";
-        cout << "  Total Products   : " << count() << "\n";
-        cout << "  Available        : " << countAvailable() << "\n";
-        cout << "  Out of Stock     : " << countOutOfStock() << "\n";
-        cout << "  Inventory Value  : $" << fixed << setprecision(2)
-             << totalInventoryValue() << "\n";
+        cout << "\n===== INVENTORY SUMMARY =====\n";
+        cout << "Total Products  : " << count() << "\n";
+        cout << "Available       : " << countAvailable() << "\n";
+        cout << "Out of Stock    : " << countOutOfStock() << "\n";
+        cout << "Inventory Value : $"
+             << fixed << setprecision(2) << totalInventoryValue() << "\n";
+        map<string, int> byType;
+        for (auto *p : products)
+            byType[p->getType()]++;
+        cout << "By Type:\n";
+        for (auto &[type, cnt] : byType)
+            cout << "  " << type << ": " << cnt << "\n";
     }
-    // Maintenance
-    // =========================================================================
-    //  File I/O  – CSV format with a header row
-    // =========================================================================
-    //
-    //  Column layout (35 columns total, 0-indexed):
-    //
-    //   Common (all types)   : 0:type  1:productId  2:sku  3:name  4:brand
-    //                          5:model  6:mainPrice  7:stockQuantity  8:description
-    //
-    //   Smartphone only      : 9:ram  10:storage  11:batteryMah  12:inches
-    //                          13:cameraMP  14:phoneOS  15:has5G  16:hasNFC
-    //                          17:refreshRateHz  18:chipset
-    //
-    //   Laptop only          : 19:ramGB  20:storageGB  21:isSSD  22:displayInches
-    //                          23:laptopOS  24:cpu  25:gpu  26:batteryWh
-    //                          27:formFactor  28:weightKg
-    //
-    //   Accessory only       : 29:accessoryCategory  30:color  31:material
-    //                          32:connectivity  33:isWireless  34:compatibleWith
-    //
-    //  Columns that don't apply to a product type are written as "none".
-    //  Fields that contain commas are wrapped in double quotes.
-    //  The compatibleWith field uses '|' as an internal separator so it
-    //  remains a single CSV cell.
-    // =========================================================================
 
-    //  Writes the full inventory to FILE_PATH in CSV format:: Throws runtime_error if the file cannot be opened.
+    // File I/O - CSV format (41 columns, 0-indexed)
+    // Common    : 0:type 1:productId 2:sku 3:name 4:brand 5:model
+    //             6:mainPrice 7:currentPrice 8:discount 9:onSale
+    //             10:stockQuantity 11:description
+    // Smartphone: 12:ram 13:storage 14:batteryMah 15:inches 16:cameraMP
+    //             17:phoneOS 18:has5G 19:hasNFC 20:refreshRateHz 21:chipset
+    // Laptop    : 22:ramGB 23:storageGB 24:isSSD 25:displayInches 26:laptopOS
+    //             27:cpu 28:gpu 29:batteryWh 30:formFactor 31:weightKg
+    //             32:touchscreen 33:usbPorts 34:thunderbolt
+    // Accessory : 35:category 36:color 37:material 38:connectivity
+    //             39:isWireless 40:compatibleWith
+    // Unused columns for a type are written as "none".
+    // compatibleWith uses '|' as an internal separator.
+
     void saveToFile() const
     {
+        // Opening File
         ofstream file(FILE_PATH);
+        // Validation if not exists
         if (!file.is_open())
-            throw runtime_error("Can't open the file!\n");
-        file << "type,productId,sku,name,brand,model,mainPrice,stockQuantity,description,"
-             << "ram,storage,batteryMah,inches,cameraMP,phoneOS,has5G,hasNFC,refreshRateHz,chipset,"
-             << "ramGB,storageGB,isSSD,displayInches,laptopOS,cpu,gpu,batteryWh,formFactor,weightKg,"
-             << "accessoryCategory,color,material,connectivity,isWireless,compatibleWith\n";
-
+            throw runtime_error("Cannot open '" + FILE_PATH + "' for writing.");
+        // Table Headers
+        file << "type,productId,sku,name,brand,model,"
+                "mainPrice,currentPrice,discount,onSale,stockQuantity,description,"
+                "ram,storage,batteryMah,inches,cameraMP,phoneOS,has5G,hasNFC,refreshRateHz,chipset,"
+                "ramGB,storageGB,isSSD,displayInches,laptopOS,cpu,gpu,batteryWh,"
+                "formFactor,weightKg,touchscreen,usbPorts,thunderbolt,"
+                "accessoryCategory,color,material,connectivity,isWireless,compatibleWith\n";
+        // Rows as products
         for (auto *p : products)
         {
-            string type = p->getType();
-
-            // Helper lambda: wrap a field in quotes if it contains a comma
-            auto q = [](const string &s) -> string
-            {
-                if (s.find(',') != string::npos)
-                    return "\"" + s + "\"";
-                return s;
-            };
-            // --- Common columns (1-9) ---
-            file << q(type) << ","
-                 << q(p->getProductId()) << ","
-                 << q(p->getSku()) << ","
-                 << q(p->getName()) << ","
-                 << q(p->getBrand()) << ","
-                 << q(p->getModel()) << ","
+            const string &type = p->getType();
+            // Checker if there is "," as usual string not csv format
+            file << csvQuote(type) << ","
+                 << csvQuote(p->getProductId()) << ","
+                 << csvQuote(p->getSku()) << ","
+                 << csvQuote(p->getName()) << ","
+                 << csvQuote(p->getBrand()) << ","
+                 << csvQuote(p->getModel()) << ","
                  << p->getMainPrice() << ","
+                 << p->getCurrentPrice() << ","
+                 << p->getDiscount() << ","
+                 << p->getOnSale() << ","
                  << p->getStockQuantity() << ","
-                 << q(p->getDescription()) << ",";
+                 << csvQuote(p->getDescription()) << ",";
+
             if (type == "smartphone")
             {
-                auto *sp = dynamic_cast<smartPhone *>(p);
-                // Smartphone columns (10-19)
+                // Dynamic Casting usage due to differnece in implemntation of each derived class
+                auto *sp = dynamic_cast<SmartPhone *>(p);
                 file << sp->getRam() << ","
                      << sp->getStorage() << ","
                      << sp->getBattery() << ","
                      << sp->getDisplay() << ","
                      << sp->getCamera() << ","
-                     << q(sp->getOS()) << ","
+                     << csvQuote(sp->getOS()) << ","
                      << sp->getHas5G() << ","
                      << sp->getHasNFC() << ","
                      << sp->getRefreshRate() << ","
-                     << q(sp->getChipset()) << ",";
-                // Laptop columns (20-29) — none
-                file << "none,none,none,none,none,none,none,none,none,";
-                // Accessory columns (30-35) — none
-                file << "none,none,none,none,none,none";
+                     << csvQuote(sp->getChipset()) << ",";
+                     // setting all unrelated data as NONE
+                file << "none,none,none,none,none,none,none,none,none,none,none,none,none,"
+                        "none,none,none,none,none,none";
             }
             else if (type == "laptop")
             {
-                auto *lp = dynamic_cast<laptop *>(p);
-                // Smartphone columns (10-19) — none
+                // Dynamic Casting usage due to differnece in implemntation of each derived class
+                auto *lp = dynamic_cast<Laptop *>(p);
+                // setting all unrelated data as NONE
                 file << "none,none,none,none,none,none,none,none,none,none,";
-                // Laptop columns (20-29)
                 file << lp->getRam() << ","
                      << lp->getStorage() << ","
                      << lp->getSSD() << ","
                      << lp->getDisplay() << ","
-                     << q(lp->getOS()) << ","
-                     << q(lp->getCPU()) << ","
-                     << q(lp->getGPU()) << ","
+                     << csvQuote(lp->getOS()) << ","
+                     << csvQuote(lp->getCPU()) << ","
+                     << csvQuote(lp->getGPU()) << ","
                      << lp->getBatteryWh() << ","
                      << static_cast<int>(lp->getFormFactor()) << ","
-                     << lp->getWeightKg() << ","; // ← see note below
-                // Accessory columns (30-35) — none
+                     << lp->getWeightKg() << ","
+                     << lp->getTouchscreen() << ","
+                     << lp->getUsbPorts() << ","
+                     << lp->getThunderbolt() << ",";
+                    // setting all unrelated data as NONE
                 file << "none,none,none,none,none,none";
             }
-            else // "Accessory"
+            else
             {
-                auto *ac = dynamic_cast<accessory *>(p);
-                // Smartphone columns (10-19) — none
-                file << "none,none,none,none,none,none,none,none,none,none,";
-                // Laptop columns (20-29) — none
-                file << "none,none,none,none,none,none,none,none,none,";
-                // Accessory columns (30-35)
+                // Dynamic Casting usage due to differnece in implemntation of each derived class
+                auto *ac = dynamic_cast<Accessory *>(p);
+                // setting all unrelated data as NONE
+                file << "none,none,none,none,none,none,none,none,none,none,"
+                        "none,none,none,none,none,none,none,none,none,none,none,none,none,";
                 file << static_cast<int>(ac->getCategory()) << ","
-                     << q(ac->getColor()) << ","
-                     << q(ac->getMaterial()) << ","
-                     << q(ac->getConnectivity()) << ","
+                     << csvQuote(ac->getColor()) << ","
+                     << csvQuote(ac->getMaterial()) << ","
+                     << csvQuote(ac->getConnectivity()) << ","
                      << ac->getIsWireless() << ",";
-                // compatibleWith — join with '|' so it stays one CSV field
                 const auto &devs = ac->getCompatibleDevices();
                 string compat;
                 for (size_t i = 0; i < devs.size(); ++i)
@@ -337,53 +369,46 @@ public:
                         compat += "|";
                     compat += devs[i];
                 }
-                file << q(compat.empty() ? "none" : compat);
+                file << csvQuote(compat.empty() ? "none" : compat);
             }
 
             file << "\n";
         }
         file.close();
-        cout << "  Inventory saved to " << FILE_PATH << " (" << count() << " products).\n";
+        cout << "Inventory saved to " << FILE_PATH << " (" << count() << " products).\n";
     }
-    //  Reads FILE_PATH, clears the current inventory, and rebuilds every
-    //  product from the CSV rows with all their specialised fields.
+
     void loadFromFile()
     {
         ifstream file(FILE_PATH);
         if (!file.is_open())
         {
-            cout << "  No existing warehouse file found at " << FILE_PATH << ". Starting fresh.\n";
+            cout << "No existing warehouse file found at '" << FILE_PATH << "'. Starting fresh.\n";
             return;
         }
-        for (auto *p : products)
-            delete p;
-        products.clear();
-        string line;
-        getline(file, line);
+        // Lambda Function to convert CSV into suitable form (csv line to vector of strings)
         auto splitCSV = [](const string &row) -> vector<string>
         {
             vector<string> cols;
             string cur;
-            bool inQuote = false;
+            bool inQuote = false; // track if we are inside quotes
             for (char c : row)
             {
                 if (c == '"')
-                {
-                    inQuote = !inQuote;
-                }
+                    inQuote = !inQuote; // toggle quote mode
                 else if (c == ',' && !inQuote)
                 {
+                    // comma outside quotes → new column
                     cols.push_back(cur);
                     cur.clear();
                 }
                 else
-                {
-                    cur += c;
-                }
+                    cur += c; // build current column
             }
             cols.push_back(cur);
-            return cols;
+            return cols; // push last column
         };
+        // Data already collected as strings so the following is lamdas to convert to the right type
         auto toInt = [](const string &s)
         { return (s == "none" || s.empty()) ? 0 : stoi(s); };
         auto toDbl = [](const string &s)
@@ -392,83 +417,81 @@ public:
         { return s == "1"; };
         auto toStr = [](const string &s)
         { return (s == "none") ? "" : s; };
+
+        string line; // line to be read from csv file
+        getline(file, line);
+        vector<product *> loaded; // returned vector of products from existed file
         int lineNum = 1;
+
         while (getline(file, line))
         {
             ++lineNum;
             if (line.empty())
                 continue;
 
-            vector<string> c = splitCSV(line);
-            if (c.size() < 35)
+            vector<string> c = splitCSV(line); // Apply the lamda function on every line
+            if (c.size() < 41)
             {
-                cerr << "  Warning: line " << lineNum << " has too few columns, skipping.\n";
+                //Neglect any data with lenght less than what is expected
+                cerr << "Warning: line " << lineNum << " has too few columns, skipping.\n";
                 continue;
             }
-
-            // Columns indices:
-            // 0:type  1:productId  2:sku  3:name  4:brand  5:model
-            // 6:mainPrice  7:stockQuantity  8:description
-            // Smartphone: 9-18
-            // Laptop:     19-28
-            // Accessory:  29-34
-
-            string type = c[0];
+            // Starting to build the vector product based on each type of products read from the file
+            // Keeping in mind validation for the inputs
+            const string &type = c[0];
+            // using try and catch to negelect any wrong type even that its lenght is logically correct
             try
             {
                 if (type == "smartphone")
                 {
-                    auto *sp = new smartPhone(
+                    auto *sp = new SmartPhone(
                         c[1], c[2], c[3], c[4], c[5],
-                        toDbl(c[6]), toInt(c[7]),
-                        toInt(c[9]),  // ram
-                        toInt(c[10]), // storage
-                        toInt(c[11]), // battery
-                        toDbl(c[12]), // display inches
-                        toInt(c[13]), // camera MP
-                        toStr(c[14])  // OS
-                    );
-                    sp->setDescription(toStr(c[8]));
-                    sp->setHas5G(toBool(c[15]));
-                    sp->setHasNFC(toBool(c[16]));
-                    if (toInt(c[17]) > 0)
-                        sp->setRefreshRate(toInt(c[17]));
-                    sp->setChipset(toStr(c[18]));
-                    products.push_back(sp);
+                        toDbl(c[6]), toInt(c[10]),
+                        toInt(c[12]), toInt(c[13]), toInt(c[14]),
+                        toDbl(c[15]), toInt(c[16]), toStr(c[17]));
+                    sp->setDescription(toStr(c[11]));
+                    sp->setHas5G(toBool(c[18]));
+                    sp->setHasNFC(toBool(c[19]));
+                    if (toInt(c[20]) > 0)
+                        sp->setRefreshRate(toInt(c[20]));
+                    sp->setChipset(toStr(c[21]));
+                    double disc = toDbl(c[8]);
+                    if (disc > 0)
+                        sp->setDiscountSale(disc, DiscountType::FIXED_AMOUNT);
+                    loaded.push_back(sp);
                 }
                 else if (type == "laptop")
                 {
-                    auto *lp = new laptop(
+                    auto *lp = new Laptop(
                         c[1], c[2], c[3], c[4], c[5],
-                        toDbl(c[6]), toInt(c[7]),
-                        toInt(c[19]),  // ramGB
-                        toInt(c[20]),  // storageGB
-                        toBool(c[21]), // isSSD
-                        toDbl(c[22]),  // displayInches
-                        toStr(c[23]),  // OS
-                        toStr(c[24]),  // cpu
-                        toStr(c[25]),  // gpu
-                        toInt(c[26]),  // batteryWh
-                        static_cast<LaptopFormFactor>(toInt(c[27])),
-                        toDbl(c[28]) // weightKg
-                    );
-                    lp->setDescription(toStr(c[8]));
-                    products.push_back(lp);
+                        toDbl(c[6]), toInt(c[10]),
+                        toInt(c[22]), toInt(c[23]), toBool(c[24]),
+                        toDbl(c[25]), toStr(c[26]), toStr(c[27]), toStr(c[28]),
+                        toInt(c[29]), static_cast<LaptopFormFactor>(toInt(c[30])),
+                        toDbl(c[31]));
+                    lp->setDescription(toStr(c[11]));
+                    lp->setTouchscreen(toBool(c[32]));
+                    lp->setUsbPorts(toInt(c[33]));
+                    lp->setThunderbolt(toBool(c[34]));
+                    double disc = toDbl(c[8]);
+                    if (disc > 0)
+                        lp->setDiscountSale(disc, DiscountType::FIXED_AMOUNT);
+                    loaded.push_back(lp);
                 }
                 else if (type == "accessory")
                 {
-                    auto *ac = new accessory(
+                    auto *ac = new Accessory(
                         c[1], c[2], c[3], c[4], c[5],
-                        toDbl(c[6]), toInt(c[7]),
-                        static_cast<AccessoryCategory>(toInt(c[29])),
-                        toStr(c[30]), // color
-                        toStr(c[31])  // material
-                    );
-                    ac->setDescription(toStr(c[8]));
-                    ac->setConnectivity(toStr(c[32]));
-                    ac->setWireless(toBool(c[33]));
-                    // compatibleWith: '|'-separated
-                    string compat = toStr(c[34]);
+                        toDbl(c[6]), toInt(c[10]),
+                        static_cast<AccessoryCategory>(toInt(c[35])),
+                        toStr(c[36]), toStr(c[37]));
+                    ac->setDescription(toStr(c[11]));
+                    ac->setConnectivity(toStr(c[38]));
+                    ac->setWireless(toBool(c[39]));
+                    double disc = toDbl(c[8]);
+                    if (disc > 0)
+                        ac->setDiscountSale(disc, DiscountType::FIXED_AMOUNT);
+                    string compat = toStr(c[40]);
                     if (!compat.empty())
                     {
                         stringstream ss(compat);
@@ -477,35 +500,39 @@ public:
                             if (!dev.empty())
                                 ac->addCompatibility(dev);
                     }
-                    products.push_back(ac);
+                    loaded.push_back(ac);
                 }
                 else
                 {
-                    cerr << "  Warning: unknown type '" << type << "' on line " << lineNum << ", skipping.\n";
+                    cerr << "Warning: unknown type '" << type << "' on line " << lineNum << ", skipping.\n";
                 }
             }
             catch (const exception &e)
             {
-                cerr << "  Error on line " << lineNum << ": " << e.what() << ", skipping.\n";
+                cerr << "Error on line " << lineNum << ": " << e.what() << " - skipping.\n";
             }
         }
         file.close();
-        cout << "  Loaded " << count() << " products from " << FILE_PATH << ".\n";
+
+        for (auto *p : products)
+            delete p;
+        products = move(loaded);
+        cout << "Loaded " << count() << " products from " << FILE_PATH << ".\n";
     }
-    inventory &operator+=(product *p)
+    // Operator overloading for making the add , remove easier
+    Inventory &operator+=(product *p)
     {
         addProduct(p);
         return *this;
     }
-
-    inventory &operator-=(const string &id)
+    Inventory &operator-=(const string &id)
     {
-        if (!removeProduct(id))
-            cout << "  [Inventory] Product '" << id << "' not found for removal.\n";
+        removeProduct(id);
         return *this;
     }
-
-    friend ostream &operator<<(ostream &out, const inventory &inv)
+    // Summary output "Op Overloading"
+    // frind to access inevntory
+    friend ostream &operator<<(ostream &out, const Inventory &inv)
     {
         out << "Inventory: " << inv.count() << " product(s) | "
             << inv.countAvailable() << " available | "
@@ -513,8 +540,3 @@ public:
         return out;
     }
 };
-
-int main()
-{
-    return 0;
-}

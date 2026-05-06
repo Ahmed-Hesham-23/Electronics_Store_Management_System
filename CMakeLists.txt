@@ -5,9 +5,9 @@ set(CMAKE_CXX_STANDARD 20)
 
 
 add_executable(Electronics_Store_Management_System
-        main.cpp
-        Products.cpp
+        Product.cpp
         tempClaude.cpp
-        Inventory.cpp
         productFactory.cpp
+        main.cpp
+        Inventory.cpp
 )
