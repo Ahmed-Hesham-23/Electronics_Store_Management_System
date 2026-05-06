@@ -139,7 +139,7 @@ public:
         const string &color = "",
         const string &material = "",
         const string &connectivity = "",
-        bool isWireless = false
+        bool isWireless = false,
         const vector<string> &compatibleDevices = {}) {
         validateBase(price, stock, "Accessory '" + name + "'");
         string sku = "AC-" + id;
