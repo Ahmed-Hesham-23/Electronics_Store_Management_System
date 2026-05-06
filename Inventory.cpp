@@ -1,3 +1,40 @@
+/*******************************************************************************
+ * FILE: Inventory.cpp
+ *
+ * ROLE:
+ * This file implements the "Manager" or "Controller" component of our system.
+ * While the Product classes define WHAT a product is, the Inventory class
+ * defines HOW the store manages hundreds of them simultaneously.
+ *
+ * KEY RESPONSIBILITIES:
+ * 1. Data Persistence (File I/O):
+ *    Handles the heavy lifting of saving and loading the entire store state
+ *    to/from "Warehouse.csv". It includes a custom CSV parser capable of
+ *    handling complex strings with quotes and internal delimiters.
+ *
+ * 2. Resource Management:
+ *    Manages a collection of Product pointers. It implements a strict
+ *    Destructor to prevent memory leaks and disables copy constructors to
+ *    avoid "shallow copy" bugs that occur with dynamic memory.
+ *
+ * 3. Search & Retrieval Engine:
+ *    Provides multiple ways to query the store—by unique ID, keyword matching,
+ *    brand filtering, or price range—using Case-Insensitive logic.
+ *
+ * 4. Business Reporting:
+ *    Calculates real-time statistics including total inventory value,
+ *    availability counts, and stock summaries grouped by product type.
+ *
+ * 5. Downcasting & Type Safety:
+ *    Uses 'dynamic_cast' during file saving to safely access specific
+ *    attributes of SmartPhones, Laptops, and Accessories that aren't
+ *    present in the base Product class.
+ *
+ * DESIGN CHOICES:
+ * - Composition: Holds a vector of Product* to allow for Polymorphism.
+ * - Operator Overloading: Implements += and -= for intuitive product
+ *   addition and removal directly from the inventory object.
+ *******************************************************************************/
 #include "Product.cpp"
 #include <iostream>
 #include <vector>
@@ -8,17 +45,14 @@
 #include <fstream>
 #include <sstream>
 #include <map>
-
 using namespace std;
-
 // =============================================================================
 // Inventory
 // =============================================================================
-
 class Inventory
 {
 private:
-    vector<product *> products;
+    vector<Product *> products;
     const string FILE_PATH = "Warehouse.csv";
     // Find index of a product by ID
     // Returns: index if found, -1 otherwise
@@ -35,7 +69,6 @@ private:
     {
         return (s.find(',') != string::npos) ? "\"" + s + "\"" : s;
     }
-
 public:
     // Disable copying (to avoid shallow copy of pointers)
     Inventory() = default;
@@ -48,7 +81,7 @@ public:
             delete p;
     }
     // Add a new product (ensures unique ID)
-    bool addProduct(product *p)
+    bool addProduct(Product *p)
     {
         if (!p)
             throw invalid_argument("Cannot add a null product.");
@@ -77,15 +110,15 @@ public:
     }
     // Searching about Prodcuts by differenet ways
     // Way1:
-    product *findById(const string &id) const
+    Product *findById(const string &id) const
     {
         int index = indexOfId(id);
         return (index == -1) ? nullptr : products[index];
     }
     //Way2:
-    vector<product *> findByName(const string &keyword) const
+    vector<Product *> findByName(const string &keyword) const
     {
-        vector<product *> results;
+        vector<Product *> results;
         string kw = keyword;
         transform(kw.begin(), kw.end(), kw.begin(), ::tolower);
         for (auto *p : products)
@@ -98,9 +131,9 @@ public:
         return results;
     }
     //Way3:
-    vector<product *> findByBrand(const string &brand) const
+    vector<Product *> findByBrand(const string &brand) const
     {
-        vector<product *> result;
+        vector<Product *> result;
         string br = brand;
         transform(br.begin(), br.end(), br.begin(), ::tolower);
         for (auto *p : products)
@@ -113,11 +146,11 @@ public:
         return result;
     }
     //Way4:
-    vector<product *> findByPriceRange(double minPrice, double maxPrice) const
+    vector<Product *> findByPriceRange(double minPrice, double maxPrice) const
     {
         if (minPrice < 0 || maxPrice < minPrice || maxPrice <= 0)
             throw invalid_argument("Invalid price range.");
-        vector<product *> result;
+        vector<Product *> result;
         for (auto *p : products)
             if (p->getCurrentPrice() >= minPrice && p->getCurrentPrice() <= maxPrice)
                 result.push_back(p);
@@ -126,7 +159,7 @@ public:
     // Stock operations
     bool restock(const string &id, int qty)
     {
-        product *p = findById(id);
+        Product *p = findById(id);
         if (!p)
         {
             cout << "Restock failed: product '" << id << "' not found.\n";
@@ -136,10 +169,9 @@ public:
         saveToFile();
         return true;
     }
-
     bool sell(const string &id, int qty)
     {
-        product *p = findById(id);
+        Product *p = findById(id);
         if (!p)
         {
             cout << "Sale failed: product '" << id << "' not found.\n";
@@ -153,7 +185,7 @@ public:
     // Pricing / status operations
     bool applyDiscount(const string &id, double amount, DiscountType type)
     {
-        product *p = findById(id);
+        Product *p = findById(id);
         if (!p)
         {
             cout << "Discount failed: product '" << id << "' not found.\n";
@@ -163,10 +195,9 @@ public:
         saveToFile();
         return true;
     }
-
     bool discontinue(const string &id)
     {
-        product *p = findById(id);
+        Product *p = findById(id);
         if (!p)
         {
             cout << "Discontinue failed: product '" << id << "' not found.\n";
@@ -179,9 +210,7 @@ public:
     // Statistics
     int count() const { return static_cast<int>(products.size()); }
     bool isEmpty() const { return products.empty(); }
-
-    const vector<product *> &all() const { return products; }
-
+    const vector<Product *> &all() const { return products; }
     int countAvailable() const
     {
         int n = 0;
@@ -190,7 +219,6 @@ public:
                 ++n;
         return n;
     }
-
     int countOutOfStock() const
     {
         int n = 0;
@@ -199,7 +227,6 @@ public:
                 ++n;
         return n;
     }
-
     double totalInventoryValue() const
     {
         double v = 0;
@@ -219,7 +246,6 @@ public:
         for (auto *p : products)
             p->displayDetails();
     }
-
     void printSearchResults(const string &keyword) const
     {
         auto res = findByName(keyword);
@@ -231,7 +257,6 @@ public:
         for (auto *p : res)
             p->displayDetails();
     }
-
     void printOutOfStock() const
     {
         cout << "\n===== OUT-OF-STOCK / UNAVAILABLE =====\n";
@@ -262,7 +287,6 @@ public:
         for (auto &[type, cnt] : byType)
             cout << "  " << type << ": " << cnt << "\n";
     }
-
     // File I/O - CSV format (41 columns, 0-indexed)
     // Common    : 0:type 1:productId 2:sku 3:name 4:brand 5:model
     //             6:mainPrice 7:currentPrice 8:discount 9:onSale
@@ -276,7 +300,6 @@ public:
     //             39:isWireless 40:compatibleWith
     // Unused columns for a type are written as "none".
     // compatibleWith uses '|' as an internal separator.
-
     void saveToFile() const
     {
         // Opening File
@@ -308,7 +331,6 @@ public:
                  << p->getOnSale() << ","
                  << p->getStockQuantity() << ","
                  << csvQuote(p->getDescription()) << ",";
-
             if (type == "smartphone")
             {
                 // Dynamic Casting usage due to differnece in implemntation of each derived class
@@ -371,13 +393,11 @@ public:
                 }
                 file << csvQuote(compat.empty() ? "none" : compat);
             }
-
             file << "\n";
         }
         file.close();
         cout << "Inventory saved to " << FILE_PATH << " (" << count() << " products).\n";
     }
-
     void loadFromFile()
     {
         ifstream file(FILE_PATH);
@@ -417,12 +437,10 @@ public:
         { return s == "1"; };
         auto toStr = [](const string &s)
         { return (s == "none") ? "" : s; };
-
         string line; // line to be read from csv file
         getline(file, line);
-        vector<product *> loaded; // returned vector of products from existed file
+        vector<Product *> loaded; // returned vector of products from existed file
         int lineNum = 1;
-
         while (getline(file, line))
         {
             ++lineNum;
@@ -513,14 +531,13 @@ public:
             }
         }
         file.close();
-
         for (auto *p : products)
             delete p;
         products = move(loaded);
         cout << "Loaded " << count() << " products from " << FILE_PATH << ".\n";
     }
     // Operator overloading for making the add , remove easier
-    Inventory &operator+=(product *p)
+    Inventory &operator+=(Product *p)
     {
         addProduct(p);
         return *this;
