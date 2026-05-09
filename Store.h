@@ -30,6 +30,7 @@
 #include <sstream>
 #include <map>
 #include <ctime>
+#include <limits>
 
 using namespace std;
 
@@ -475,6 +476,7 @@ public:
     static int user_count;
 
     User(string n, string e, string p, string phNum, string Adds, bool isHashed = false);
+    User(int restoredId, string n, string e, string p, string phNum, string Adds); // restore from file
     virtual ~User() {}
 
     virtual char getRole() = 0;
@@ -490,6 +492,8 @@ public:
     virtual void addNewProduct(Inventory& inv);
     virtual void deleteProduct(Inventory& inv, string productId);
     virtual void restockProduct(Inventory& inv, string productId, int qty);
+    virtual void applyDiscountToProduct(Inventory& inv);
+    virtual void discontinueProduct(Inventory& inv, string productId);
     virtual void viewInventoryReport(const Inventory& inv) const;
 
     // Getters
@@ -512,13 +516,16 @@ private:
 
 public:
     Customer(string n, string e, string p, string phNum, string Adds, bool isHashed = false);
+    Customer(int restoredId, string n, string e, string p, string phNum, string Adds); // restore from file
     char getRole() override;
+    const Cart& getCart() const { return customerCart; }  // ← ADD THIS LINE
 
     void browseProducts(Inventory& inv) override;
     bool addToCart(Product* p, int qty) override;
     void removeFromCart(string productId) override;
     void viewCart() const override;
     Order checkout(Inventory& inv) override;
+    void viewOrderHistory(const vector<Order>& allOrders) const;
 };
 
 // =============================================================================
@@ -528,13 +535,23 @@ public:
 class Admin : public User {
 public:
     Admin(string n, string e, string p, string phNum, string Adds, bool isHashed = false);
+    Admin(int restoredId, string n, string e, string p, string phNum, string Adds); // restore from file
     char getRole() override;
 
     void addNewProduct(Inventory& inv) override;
     void deleteProduct(Inventory& inv, string productId) override;
     void restockProduct(Inventory& inv, string productId, int qty) override;
+    void applyDiscountToProduct(Inventory& inv) override;
+    void discontinueProduct(Inventory& inv, string productId) override;
     void viewInventoryReport(const Inventory& inv) const override;
 };
+
+// =============================================================================
+// Forward declaration so userManager::login() can accept FileManager&
+// without a circular include (FileManager is fully declared below).
+// =============================================================================
+
+class FileManager;
 
 // =============================================================================
 // userManager (Singleton)
@@ -547,15 +564,18 @@ private:
     static userManager* UMptr;
 
 public:
+    // --- ADD THIS LINE ---
+    const vector<User*>& getUsers() const { return v; }
     userManager(const userManager&) = delete;
-    userManager operator=(const userManager&) = delete;
+    userManager& operator=(const userManager&) = delete;
 
     static userManager* getUMinstance();
 
     bool isHashed(const string& p);
+    void ensureAdminExists();
     void createAdmin();
     void signUp();
-    User* login(Inventory& inv, vector<Order>& allOrders);
+    User* login(Inventory& inv, vector<Order>& allOrders, FileManager& fm);
     void loadFromFile();
     void saveToFile();
     void displayvector();
