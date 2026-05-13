@@ -1898,7 +1898,7 @@ User* userManager::login(Inventory& inv, vector<Order>& allOrders, FileManager& 
                              << "7) Add Admin\n"
                              << "8) Logout\n"
                              << "Selection: ";
-                        if (!(cin >> adminChoice)) {
+                        if (!(cin >> adminChoice)) { //if the user didn't enter a number
                             cin.clear();
                             cin.ignore(numeric_limits<streamsize>::max(), '\n');
                             cout << "Invalid input. Please enter a number.\n";

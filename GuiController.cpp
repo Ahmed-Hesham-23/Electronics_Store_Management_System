@@ -2,25 +2,25 @@
 #include <stdexcept>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Catalog: push all inventory products into the UI list
+// Catalog
 // ─────────────────────────────────────────────────────────────────────────────
 void GuiController::updateCatalog() {
-    const auto& products = inventory.all();
     auto items = std::make_shared<slint::VectorModel<ProductItem>>();
 
-    for (auto* p : products) {
+    for (auto* p : inventory.all()) {
         ProductItem item;
-        item.id     = slint::SharedString(p->getProductId());
-        item.name   = slint::SharedString(p->getName());
-        item.brand  = slint::SharedString(p->getBrand());
-        item.price  = slint::SharedString(fmtPrice(p->getCurrentPrice()));
-        item.stock  = slint::SharedString(std::to_string(p->getStockQuantity()));
-        item.status = slint::SharedString(p->getStatusString());
+        item.id      = slint::SharedString(p->getProductId());
+        item.name    = slint::SharedString(p->getName());
+        item.brand   = slint::SharedString(p->getBrand());
+        item.price   = slint::SharedString(fmtPrice(p->getCurrentPrice()));
+        item.stock   = slint::SharedString(std::to_string(p->getStockQuantity()));
+        item.status  = slint::SharedString(p->getStatusString());
         item.on_sale = p->getOnSale();
 
+        // getType() returns lowercase: "smartphone", "laptop", "accessory"
         std::string t = p->getType();
-        if      (t == "SmartPhone") item.type = slint::SharedString("Smartphone");
-        else if (t == "Laptop")     item.type = slint::SharedString("Laptop");
+        if      (t == "smartphone") item.type = slint::SharedString("Smartphone");
+        else if (t == "laptop")     item.type = slint::SharedString("Laptop");
         else                        item.type = slint::SharedString("Accessory");
 
         items->push_back(item);
@@ -29,14 +29,11 @@ void GuiController::updateCatalog() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cart: push the current user's cart items into the UI list
+// Cart  (Store.h CartItem has fields: item = Product*, quantity = int)
 // ─────────────────────────────────────────────────────────────────────────────
 void GuiController::updateCart() {
     if (!currentUser || currentUser->getRole() != 'C') return;
 
-    // Access cart through the virtual viewCart path — we read items directly
-    // via the Cart getter exposed on Customer through the base User interface.
-    // Because Cart is private on Customer we use a small dynamic_cast.
     Customer* cust = dynamic_cast<Customer*>(currentUser);
     if (!cust) return;
 
@@ -44,15 +41,15 @@ void GuiController::updateCart() {
     double total = 0.0;
 
     for (const auto& ci : cust->getCart().getItems()) {
-        UiCartItem uiItem;
-        uiItem.product_id = slint::SharedString(ci.item->getProductId());
-        uiItem.name       = slint::SharedString(ci.item->getName());
-        uiItem.price      = slint::SharedString(fmtPrice(ci.item->getCurrentPrice()));
-        uiItem.quantity   = slint::SharedString(std::to_string(ci.quantity));
-        double sub        = ci.item->getCurrentPrice() * ci.quantity;
-        uiItem.subtotal   = slint::SharedString(fmtPrice(sub));
-        total            += sub;
-        items->push_back(uiItem);
+        UiCartItem ui_item;
+        ui_item.product_id = slint::SharedString(ci.item->getProductId());
+        ui_item.name       = slint::SharedString(ci.item->getName());
+        ui_item.price      = slint::SharedString(fmtPrice(ci.item->getCurrentPrice()));
+        ui_item.quantity   = slint::SharedString(std::to_string(ci.quantity));
+        double sub         = ci.item->getCurrentPrice() * ci.quantity;
+        ui_item.subtotal   = slint::SharedString(fmtPrice(sub));
+        total             += sub;
+        items->push_back(ui_item);
     }
 
     ui->set_cart_items(items);
@@ -60,7 +57,7 @@ void GuiController::updateCart() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Orders: push orders that belong to this customer
+// Orders
 // ─────────────────────────────────────────────────────────────────────────────
 void GuiController::updateOrders() {
     if (!currentUser) return;
@@ -81,14 +78,13 @@ void GuiController::updateOrders() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constructor: wire every Slint callback to the C++ backend
+// Constructor — wire all callbacks
 // ─────────────────────────────────────────────────────────────────────────────
 GuiController::GuiController()
     : um(userManager::getUMinstance()), fm(inventory, *um, orders)
 {
     fm.loadAll();
 
-    // ── Start on login screen ─────────────────────────────────────────────
     ui->set_user_role("None");
     ui->set_active_page("catalog");
 
@@ -117,26 +113,21 @@ GuiController::GuiController()
 
     // ── Sign Up ───────────────────────────────────────────────────────────
     ui->on_signup_requested([this](
-        slint::SharedString name,
-        slint::SharedString email,
-        slint::SharedString pass,
-        slint::SharedString phone,
+        slint::SharedString name,  slint::SharedString email,
+        slint::SharedString pass,  slint::SharedString phone,
         slint::SharedString addr)
     {
-        std::string n = std::string(name);
-        std::string e = std::string(email);
-        std::string p = std::string(pass);
-        std::string ph= std::string(phone);
-        std::string a = std::string(addr);
+        std::string n  = std::string(name);
+        std::string e  = std::string(email);
+        std::string p  = std::string(pass);
+        std::string ph = std::string(phone);
+        std::string a  = std::string(addr);
 
         if (n.empty() || e.empty() || p.empty()) {
             ui->set_status_message("Name, email and password are required.");
             return;
         }
-
         User* u = new Customer(n, e, p, ph, a);
-        // Add to userManager via the public signUp path would use cin.
-        // We do it directly:
         FILE* fptr = fopen("users.csv", "a");
         if (fptr) {
             fprintf(fptr, "%d,%s,%s,%s,%s,%s,C\n",
@@ -144,12 +135,9 @@ GuiController::GuiController()
                 u->getPasswordHash().c_str(), ph.c_str(), a.c_str());
             fclose(fptr);
         }
-        // Also push into the in-memory vector via the singleton
-        // userManager keeps its vector private so we reload from file
-        fm.loadUsers();
-
         std::string msg = "Account created! Your ID is " + std::to_string(u->getID());
-        delete u;   // was already persisted; reload gave us a fresh copy
+        delete u;
+        fm.loadUsers();
         ui->set_status_message(slint::SharedString(msg));
     });
 
@@ -160,7 +148,6 @@ GuiController::GuiController()
         ui->set_user_name("Guest");
         ui->set_status_message("");
         ui->set_active_page("catalog");
-        // clear lists
         ui->set_catalog_items(std::make_shared<slint::VectorModel<ProductItem>>());
         ui->set_cart_items(std::make_shared<slint::VectorModel<UiCartItem>>());
         ui->set_order_items(std::make_shared<slint::VectorModel<OrderItem>>());
@@ -182,20 +169,26 @@ GuiController::GuiController()
         std::string q = std::string(query);
         auto items = std::make_shared<slint::VectorModel<ProductItem>>();
 
-        auto matches = q.empty() ? inventory.all() : inventory.findByName(q);
+        std::vector<Product*> matches = q.empty()
+            ? inventory.all()
+            : inventory.findByName(q);
+
         for (auto* p : matches) {
             ProductItem item;
-            item.id     = slint::SharedString(p->getProductId());
-            item.name   = slint::SharedString(p->getName());
-            item.brand  = slint::SharedString(p->getBrand());
-            item.price  = slint::SharedString(fmtPrice(p->getCurrentPrice()));
-            item.stock  = slint::SharedString(std::to_string(p->getStockQuantity()));
-            item.status = slint::SharedString(p->getStatusString());
+            item.id      = slint::SharedString(p->getProductId());
+            item.name    = slint::SharedString(p->getName());
+            item.brand   = slint::SharedString(p->getBrand());
+            item.price   = slint::SharedString(fmtPrice(p->getCurrentPrice()));
+            item.stock   = slint::SharedString(std::to_string(p->getStockQuantity()));
+            item.status  = slint::SharedString(p->getStatusString());
             item.on_sale = p->getOnSale();
+
+            // lowercase match
             std::string t = p->getType();
-            if      (t == "SmartPhone") item.type = slint::SharedString("Smartphone");
-            else if (t == "Laptop")     item.type = slint::SharedString("Laptop");
+            if      (t == "smartphone") item.type = slint::SharedString("Smartphone");
+            else if (t == "laptop")     item.type = slint::SharedString("Laptop");
             else                        item.type = slint::SharedString("Accessory");
+
             items->push_back(item);
         }
         ui->set_catalog_items(items);
@@ -205,8 +198,8 @@ GuiController::GuiController()
     ui->on_add_to_cart([this](slint::SharedString pid, int qty) {
         if (!currentUser || currentUser->getRole() != 'C') return;
         Product* p = inventory.findById(std::string(pid));
-        if (!p) { ui->set_status_message("Product not found."); return; }
-        if (!p->isAvailable()) { ui->set_status_message("Product is not available."); return; }
+        if (!p)               { ui->set_status_message("Product not found.");        return; }
+        if (!p->isAvailable()) { ui->set_status_message("Product not available.");   return; }
         currentUser->addToCart(p, qty > 0 ? qty : 1);
         ui->set_status_message(slint::SharedString(p->getName() + " added to cart."));
         updateCart();
@@ -250,11 +243,18 @@ GuiController::GuiController()
         updateCatalog();
     });
 
-    // ── Restock Product (Admin) ───────────────────────────────────────────
-    ui->on_restock_product([this](slint::SharedString pid, int qty) {
+    // ── Restock Product (Admin) — qty entered by user in the card ─────────
+    ui->on_restock_product_qty([this](slint::SharedString pid, slint::SharedString qty_str) {
         if (!currentUser || currentUser->getRole() != 'A') return;
-        if (inventory.restock(std::string(pid), qty > 0 ? qty : 10)) {
-            ui->set_status_message("Product restocked.");
+        int qty = 0;
+        try { qty = std::stoi(std::string(qty_str)); } catch (...) {}
+        if (qty <= 0) {
+            ui->set_status_message("Enter a valid restock quantity.");
+            return;
+        }
+        if (inventory.restock(std::string(pid), qty)) {
+            ui->set_status_message(slint::SharedString(
+                "Restocked " + std::string(pid) + " with " + std::to_string(qty) + " units."));
             inventory.saveToFile();
         } else {
             ui->set_status_message("Restock failed.");
@@ -280,21 +280,18 @@ GuiController::GuiController()
 
     // ── Add Product (Admin) ───────────────────────────────────────────────
     ui->on_add_product_requested([this](
-        slint::SharedString pid,
-        slint::SharedString name,
-        slint::SharedString brand,
-        slint::SharedString model,
-        slint::SharedString price_str,
-        slint::SharedString stock_str,
+        slint::SharedString pid,   slint::SharedString name,
+        slint::SharedString brand, slint::SharedString model,
+        slint::SharedString price_str, slint::SharedString stock_str,
         slint::SharedString type_str)
     {
         if (!currentUser || currentUser->getRole() != 'A') return;
 
-        std::string id  = std::string(pid);
-        std::string nm  = std::string(name);
-        std::string br  = std::string(brand);
-        std::string md  = std::string(model);
-        std::string tp  = std::string(type_str);
+        std::string id = std::string(pid);
+        std::string nm = std::string(name);
+        std::string br = std::string(brand);
+        std::string md = std::string(model);
+        std::string tp = std::string(type_str);
 
         if (id.empty() || nm.empty()) {
             ui->set_status_message("ID and Name are required.");
@@ -308,19 +305,19 @@ GuiController::GuiController()
 
         Product* pro = nullptr;
         try {
-            if (tp == "smartphone" || tp == "Smartphone") {
+            if (tp == "smartphone") {
                 pro = ProductFactory::createSmartPhone(
-                    id, nm, br, md, (double)price, stock,
+                    id, nm, br, md, price, stock,
                     4, 128, 4000, 6.5, 12, "Android");
-            } else if (tp == "laptop" || tp == "Laptop") {
+            } else if (tp == "laptop") {
                 pro = ProductFactory::createLaptop(
-                    id, nm, br, md, (double)price, stock,
+                    id, nm, br, md, price, stock,
                     8, 512, true, 15.6, "Windows 11",
                     "Unknown CPU", "Unknown GPU", 50,
                     LaptopFormFactor::ULTRABOOK);
             } else {
                 pro = ProductFactory::createAccessory(
-                    id, nm, br, md, (double)price, stock,
+                    id, nm, br, md, price, stock,
                     AccessoryCategory::CASE_COVER);
             }
 
@@ -339,9 +336,7 @@ GuiController::GuiController()
 
     // ── Apply Discount (Admin) ────────────────────────────────────────────
     ui->on_apply_discount_requested([this](
-        slint::SharedString pid,
-        float amount,
-        slint::SharedString dtype)
+        slint::SharedString pid, float amount, slint::SharedString dtype)
     {
         if (!currentUser || currentUser->getRole() != 'A') return;
         DiscountType dt = (std::string(dtype) == "percentage")
