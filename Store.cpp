@@ -18,7 +18,7 @@
 #include "Store.h"
 
 // =============================================================================
-// Static / global variable definitions
+// Static / global variable definitions used in the file
 // =============================================================================
 
 int maxID = 100000; // starting point for user ids
